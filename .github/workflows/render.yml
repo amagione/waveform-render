@@ -114,7 +114,7 @@ jobs:
           RC=$?
           set -e
           case $RC in
-            0) echo "produce: ok" ;;
+            0) NM=$(python3 -c "import json;print(json.load(open('output/.narr_meta.json')).get('source','?'))" 2>/dev/null || echo '?'); echo "produce: ok (voice=$NM)" ;;
             2|3|4) echo "produce: skipped ($RC)"; touch /tmp/skip_render ;;
             *) echo "produce: error ($RC)"; tail -c 1200 /tmp/produce.log; exit 1 ;;
           esac
@@ -160,6 +160,8 @@ jobs:
           CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
           CI_TOKEN: ${{ secrets.CI_TOKEN }}
           SEED: ${{ github.event.inputs.seed }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ secrets.TG_CHAT }}
         run: |
           set -e
           if [ -f /tmp/skip_render ]; then echo "publish: skipped"; exit 0; fi
@@ -168,11 +170,21 @@ jobs:
           python3 scripts/upload_from_props.py > /tmp/upload.log 2>&1
           RC=$?
           set -e
-          if [ $RC -ne 0 ]; then echo "publish: error ($RC)"; tail -c 800 /tmp/upload.log; exit 1; fi
+          if [ $RC -ne 0 ]; then python3 scripts/tg_notify.py --kind fail --seed "$SEED" --stage publish > /tmp/tg.log 2>&1 || true; echo "publish: error ($RC)"; tail -c 800 /tmp/upload.log; exit 1; fi
           VID=$(grep -o 'video_id=[A-Za-z0-9_-]*' /tmp/upload.log | head -1 | cut -d= -f2)
           curl -fsSL -m 15 -X POST -H "Authorization: Bearer $CI_TOKEN" -H 'content-type: application/json' \
             -d "{\"seed\":\"$SEED\",\"video\":\"$VID\"}" "$CI_ENDPOINT/done" > /dev/null || true
+          python3 scripts/tg_notify.py --kind publish --seed "$SEED" --video "$VID" > /tmp/tg.log 2>&1 && echo "notify: ok" || echo "notify: failed"
           echo "publish: ok"
+
+      - name: notify
+        if: failure()
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ secrets.TG_CHAT }}
+          SEED: ${{ github.event.inputs.seed }}
+        run: |
+          if [ -f app/scripts/tg_notify.py ]; then (cd app && python3 scripts/tg_notify.py --kind fail --seed "$SEED" --stage workflow > /tmp/tg.log 2>&1 && echo "notify: ok") || echo "notify: failed"; else echo "notify: skipped (no kit)"; fi
 
       - name: cleanup
         if: always()
