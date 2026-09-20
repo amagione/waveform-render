@@ -1,0 +1,178 @@
+name: render
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: '32-char hex seed (palette + geometry determinism)'
+        required: false
+        default: ''
+      profile:
+        description: 'preview | full'
+        required: false
+        default: 'preview'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: prepare
+        env:
+          CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
+          CI_TOKEN: ${{ secrets.CI_TOKEN }}
+          SEED: ${{ github.event.inputs.seed }}
+        run: |
+          set -e
+          if [ -z "$SEED" ]; then echo "no seed given - nothing to do"; exit 0; fi
+          mkdir -p app
+          curl -fsSL -m 600 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/bundle.tar.gz" | tar xz -C app
+          echo "kit: ok ($(du -sh app | cut -f1))"
+          echo "runtime: $(nproc) cores, $(free -h | awk '/^Mem/{print $2}') mem"
+
+      - name: install
+        if: ${{ github.event.inputs.seed != '' }}
+        working-directory: app
+        run: |
+          set -e
+          npm ci --no-audit --no-fund > /dev/null 2>&1
+          pip install -q -r requirements.txt > /dev/null 2>&1
+          command -v ffmpeg >/dev/null || { sudo apt-get update -qq >/dev/null 2>&1; sudo apt-get install -y -qq ffmpeg >/dev/null 2>&1; }
+          echo "deps: ok"
+
+      - name: compose
+        if: ${{ github.event.inputs.seed != '' }}
+        working-directory: app
+        env:
+          CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
+          CI_TOKEN: ${{ secrets.CI_TOKEN }}
+          SEED: ${{ github.event.inputs.seed }}
+        run: |
+          set -e
+          curl -fsSL -m 30 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/episode/$SEED" -o /tmp/brief.json
+          python3 -c "import json,sys; j=json.load(open('/tmp/brief.json')); sys.exit(0 if j.get('ok') else 1)"
+          mkdir -p output
+          mv /tmp/brief.json output/brief.json
+          BP=$(python3 -c "import json; print(((json.load(open('output/brief.json')).get('brief') or {}).get('image') or {}).get('branch_path') or '')")
+          if [ -n "$BP" ]; then
+            mkdir -p "episodes-img/$(dirname "$BP")"
+            curl -fsSL -m 90 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/image/$SEED" -o "episodes-img/$BP"
+            echo "artwork: ok"
+          else
+            echo "artwork: inline (brief url)"
+          fi
+
+      - name: lint
+        if: ${{ github.event.inputs.seed != '' }}
+        working-directory: app
+        env:
+          GEMINI_API_KEY: ${{ secrets.AUTH_TOKEN }}
+          GEMINI_API_KEY_1: ${{ secrets.AUTH_TOKEN_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.AUTH_TOKEN_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.AUTH_TOKEN_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.AUTH_TOKEN_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.AUTH_TOKEN_5 }}
+          GEMINI_API_KEY_6: ${{ secrets.AUTH_TOKEN_6 }}
+          GEMINI_API_KEY_7: ${{ secrets.AUTH_TOKEN_7 }}
+          GEMINI_API_KEY_8: ${{ secrets.AUTH_TOKEN_8 }}
+        run: |
+          set +e
+          python3 scripts/pre_flight_check.py > /dev/null 2>&1
+          RC=$?
+          set -e
+          if [ $RC -ne 0 ]; then echo "lint: failed ($RC)"; exit 1; fi
+          echo "lint: ok"
+
+      - name: produce
+        if: ${{ github.event.inputs.seed != '' }}
+        working-directory: app
+        env:
+          GEMINI_API_KEY: ${{ secrets.AUTH_TOKEN }}
+          GEMINI_API_KEY_1: ${{ secrets.AUTH_TOKEN_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.AUTH_TOKEN_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.AUTH_TOKEN_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.AUTH_TOKEN_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.AUTH_TOKEN_5 }}
+          GEMINI_API_KEY_6: ${{ secrets.AUTH_TOKEN_6 }}
+          GEMINI_API_KEY_7: ${{ secrets.AUTH_TOKEN_7 }}
+          GEMINI_API_KEY_8: ${{ secrets.AUTH_TOKEN_8 }}
+        run: |
+          set +e
+          python3 scripts/produce_from_brief.py --brief output/brief.json --image-root episodes-img > /tmp/produce.log 2>&1
+          RC=$?
+          set -e
+          case $RC in
+            0) echo "produce: ok" ;;
+            2|3|4) echo "produce: skipped ($RC)"; touch /tmp/skip_render ;;
+            *) echo "produce: error ($RC)"; tail -c 1200 /tmp/produce.log; exit 1 ;;
+          esac
+
+      - name: render
+        if: ${{ github.event.inputs.seed != '' }}
+        working-directory: app
+        run: |
+          set -e
+          if [ -f /tmp/skip_render ]; then echo "render: skipped"; exit 0; fi
+          PROPS_FILE=$(ls -t output/props_*.json | head -1)
+          CORES=$(nproc)
+          CONC=$(( CORES < 4 ? CORES : 4 ))
+          set +e
+          npx remotion render src/Root.tsx ShortVideo output/video.mp4 --props=$PROPS_FILE --concurrency=$CONC --codec=h264 --crf=26 --preset=ultrafast --image-format=jpeg --gl=swiftshader --log=warn > /tmp/render.log 2>&1
+          RC=$?
+          set -e
+          if [ $RC -ne 0 ]; then echo "render: error ($RC)"; tail -c 1200 /tmp/render.log; exit 1; fi
+          echo "render: ok (cores=$CORES, conc=$CONC)"
+
+      - name: master
+        if: ${{ github.event.inputs.seed != '' }}
+        working-directory: app
+        run: |
+          set -e
+          if [ -f /tmp/skip_render ]; then echo "master: skipped"; exit 0; fi
+          python3 scripts/normalize_loudness.py output/video.mp4 > /dev/null 2>&1 || true
+          set +e
+          python3 scripts/guards_from_props.py
+          RC=$?
+          set -e
+          if [ $RC -eq 7 ]; then echo "master: quality gate - publish skipped"; touch /tmp/skip_render; exit 0; fi
+          if [ $RC -ne 0 ]; then echo "master: error ($RC)"; exit 1; fi
+          echo "master: ok"
+
+      - name: publish
+        if: ${{ github.event.inputs.profile == 'full' && github.event.inputs.seed != '' }}
+        working-directory: app
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.PUB_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.PUB_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.PUB_TOKEN }}
+          CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
+          CI_TOKEN: ${{ secrets.CI_TOKEN }}
+          SEED: ${{ github.event.inputs.seed }}
+        run: |
+          set -e
+          if [ -f /tmp/skip_render ]; then echo "publish: skipped"; exit 0; fi
+          export PROPS_FILE=$(ls -t output/props_*.json | head -1)
+          set +e
+          python3 scripts/upload_from_props.py > /tmp/upload.log 2>&1
+          RC=$?
+          set -e
+          if [ $RC -ne 0 ]; then echo "publish: error ($RC)"; tail -c 800 /tmp/upload.log; exit 1; fi
+          VID=$(grep -o 'video_id=[A-Za-z0-9_-]*' /tmp/upload.log | head -1 | cut -d= -f2)
+          curl -fsSL -m 15 -X POST -H "Authorization: Bearer $CI_TOKEN" -H 'content-type: application/json' \
+            -d "{\"seed\":\"$SEED\",\"video\":\"$VID\"}" "$CI_ENDPOINT/done" > /dev/null || true
+          echo "publish: ok"
+
+      - name: cleanup
+        if: always()
+        run: |
+          rm -rf app /tmp/*.log 2>/dev/null || true
+          echo "cleanup: done"
