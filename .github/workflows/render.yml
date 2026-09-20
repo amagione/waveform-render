@@ -175,6 +175,9 @@ jobs:
           curl -fsSL -m 15 -X POST -H "Authorization: Bearer $CI_TOKEN" -H 'content-type: application/json' \
             -d "{\"seed\":\"$SEED\",\"video\":\"$VID\"}" "$CI_ENDPOINT/done" > /dev/null || true
           python3 scripts/tg_notify.py --kind publish --seed "$SEED" --video "$VID" > /tmp/tg.log 2>&1 && echo "notify: ok" || echo "notify: failed"
+          python3 scripts/post_pin_comment.py --video "$VID" > /tmp/pin.log 2>&1 && echo "comments: ok" || echo "comments: skipped"
+          python3 scripts/captions_from_props.py --video "$VID" > /tmp/captions.log 2>&1 && echo "captions: ok" || echo "captions: skipped"
+          python3 scripts/playlists_sync.py --video "$VID" > /tmp/playlist.log 2>&1 && echo "playlist: ok" || echo "playlist: skipped"
           echo "publish: ok"
 
       - name: notify
