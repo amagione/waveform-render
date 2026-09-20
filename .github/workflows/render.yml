@@ -84,6 +84,9 @@ jobs:
           GEMINI_API_KEY_6: ${{ secrets.AUTH_TOKEN_6 }}
           GEMINI_API_KEY_7: ${{ secrets.AUTH_TOKEN_7 }}
           GEMINI_API_KEY_8: ${{ secrets.AUTH_TOKEN_8 }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.PUB_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.PUB_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.PUB_TOKEN }}
         run: |
           set +e
           python3 scripts/pre_flight_check.py > /tmp/lint.log 2>&1
