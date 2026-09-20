@@ -86,10 +86,10 @@ jobs:
           GEMINI_API_KEY_8: ${{ secrets.AUTH_TOKEN_8 }}
         run: |
           set +e
-          python3 scripts/pre_flight_check.py > /dev/null 2>&1
+          python3 scripts/pre_flight_check.py > /tmp/lint.log 2>&1
           RC=$?
           set -e
-          if [ $RC -ne 0 ]; then echo "lint: failed ($RC)"; exit 1; fi
+          if [ $RC -ne 0 ]; then echo "lint: failed ($RC)"; grep -E 'FAIL|✗' /tmp/lint.log | head -10; exit 1; fi
           echo "lint: ok"
 
       - name: produce
