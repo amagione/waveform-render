@@ -89,7 +89,7 @@ jobs:
           python3 scripts/pre_flight_check.py > /tmp/lint.log 2>&1
           RC=$?
           set -e
-          if [ $RC -ne 0 ]; then echo "lint: failed ($RC)"; grep -E 'FAIL|✗' /tmp/lint.log | head -10; exit 1; fi
+          if [ $RC -ne 0 ]; then echo "lint: failed ($RC)"; tail -c 3000 /tmp/lint.log; exit 1; fi
           echo "lint: ok"
 
       - name: produce
