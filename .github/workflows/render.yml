@@ -58,11 +58,11 @@ jobs:
           SEED: ${{ github.event.inputs.seed }}
         run: |
           set -e
-          curl -fsSL -m 30 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/episode/$SEED" -o /tmp/brief.json
-          python3 -c "import json,sys; j=json.load(open('/tmp/brief.json')); sys.exit(0 if j.get('ok') else 1)"
+          curl -fsSL -m 30 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/episode/$SEED" -o /tmp/ep.json
+          python3 -c "import json,sys; j=json.load(open('/tmp/ep.json')); sys.exit(0 if j.get('ok') else 1)"
           mkdir -p output
-          mv /tmp/brief.json output/brief.json
-          BP=$(python3 -c "import json; print(((json.load(open('output/brief.json')).get('brief') or {}).get('image') or {}).get('branch_path') or '')")
+          python3 -c "import json; json.dump(json.load(open('/tmp/ep.json')).get('brief') or {}, open('output/brief.json','w'), ensure_ascii=False)"
+          BP=$(python3 -c "import json; print(((json.load(open('output/brief.json')).get('image') or {}).get('branch_path') or ''))")
           if [ -n "$BP" ]; then
             mkdir -p "episodes-img/$(dirname "$BP")"
             curl -fsSL -m 90 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/image/$SEED" -o "episodes-img/$BP"
