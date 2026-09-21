@@ -108,12 +108,19 @@ jobs:
           YOUTUBE_CLIENT_ID: ${{ secrets.PUB_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.PUB_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.PUB_TOKEN }}
+          CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
+          CI_TOKEN: ${{ secrets.CI_TOKEN }}
+          SEED: ${{ github.event.inputs.seed }}
         run: |
           set +e
           python3 scripts/pre_flight_check.py > /tmp/lint.log 2>&1
           RC=$?
           set -e
-          if [ $RC -ne 0 ]; then echo "lint: failed ($RC)"; tail -c 3000 /tmp/lint.log; exit 1; fi
+          if [ $RC -ne 0 ]; then
+            echo "lint: failed ($RC)"
+            curl -fsSL -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @/tmp/lint.log "$CI_ENDPOINT/prod-log?seed=$SEED&kind=lint" > /dev/null 2>&1 || true
+            exit 1
+          fi
           echo "lint: ok"
 
       - name: produce
@@ -129,20 +136,28 @@ jobs:
           GEMINI_API_KEY_6: ${{ secrets.AUTH_TOKEN_6 }}
           GEMINI_API_KEY_7: ${{ secrets.AUTH_TOKEN_7 }}
           GEMINI_API_KEY_8: ${{ secrets.AUTH_TOKEN_8 }}
+          CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
+          CI_TOKEN: ${{ secrets.CI_TOKEN }}
+          SEED: ${{ github.event.inputs.seed }}
         run: |
           set +e
           python3 scripts/produce_from_brief.py --brief output/brief.json --image-root episodes-img > /tmp/produce.log 2>&1
           RC=$?
           set -e
+          ship() { curl -fsSL -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @"$1" "$CI_ENDPOINT/prod-log?seed=$SEED&kind=$2" > /dev/null 2>&1 || true; }
           case $RC in
-            0) NM=$(python3 -c "import json;print(json.load(open('output/.narr_meta.json')).get('source','?'))" 2>/dev/null || echo '?'); echo "produce: ok (voice=$NM)"; grep -aE 'ASR|концовк|форма [0-9]|site_ok|TTS ' /tmp/produce.log | tail -20 || true; tail -c 600 /tmp/produce.log || true ;;
-            2|3|4) echo "produce: skipped ($RC)"; touch /tmp/skip_render; tail -c 1200 /tmp/produce.log || true ;;
-            *) echo "produce: error ($RC)"; tail -c 1200 /tmp/produce.log; exit 1 ;;
+            0) NM=$(python3 -c "import json;print(json.load(open('output/.narr_meta.json')).get('source','?'))" 2>/dev/null || echo '?'); echo "produce: ok (voice=$NM)"; ship /tmp/produce.log produce ;;
+            2|3|4) echo "produce: skipped ($RC)"; touch /tmp/skip_render; ship /tmp/produce.log produce ;;
+            *) echo "produce: error ($RC)"; ship /tmp/produce.log produce; exit 1 ;;
           esac
 
       - name: render
         if: ${{ github.event.inputs.seed != '' }}
         working-directory: app
+        env:
+          CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
+          CI_TOKEN: ${{ secrets.CI_TOKEN }}
+          SEED: ${{ github.event.inputs.seed }}
         run: |
           set -e
           if [ -f /tmp/skip_render ]; then echo "render: skipped"; exit 0; fi
@@ -153,7 +168,11 @@ jobs:
           npx remotion render src/Root.tsx ShortVideo output/video.mp4 --props=$PROPS_FILE --concurrency=$CONC --codec=h264 --crf=26 --preset=ultrafast --image-format=jpeg --gl=swiftshader --log=warn > /tmp/render.log 2>&1
           RC=$?
           set -e
-          if [ $RC -ne 0 ]; then echo "render: error ($RC)"; tail -c 1200 /tmp/render.log; exit 1; fi
+          if [ $RC -ne 0 ]; then
+            echo "render: error ($RC)"
+            curl -fsSL -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @/tmp/render.log "$CI_ENDPOINT/prod-log?seed=$SEED&kind=render" > /dev/null 2>&1 || true
+            exit 1
+          fi
           echo "render: ok (cores=$CORES, conc=$CONC)"
 
       - name: master
@@ -187,18 +206,19 @@ jobs:
           set -e
           if [ -f /tmp/skip_render ]; then echo "publish: skipped"; exit 0; fi
           export PROPS_FILE=$(ls -t output/props_*.json | head -1)
+          ship() { curl -fsSL -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @"$1" "$CI_ENDPOINT/prod-log?seed=$SEED&kind=$2" > /dev/null 2>&1 || true; }
           set +e
           python3 scripts/upload_from_props.py > /tmp/upload.log 2>&1
           RC=$?
           set -e
-          if [ $RC -ne 0 ]; then python3 scripts/tg_notify.py --kind fail --seed "$SEED" --stage publish > /tmp/tg.log 2>&1 || true; echo "publish: error ($RC)"; tail -c 800 /tmp/upload.log; exit 1; fi
+          if [ $RC -ne 0 ]; then python3 scripts/tg_notify.py --kind fail --seed "$SEED" --stage publish > /tmp/tg.log 2>&1 || true; echo "publish: error ($RC)"; ship /tmp/upload.log upload; exit 1; fi
           VID=$(grep -o 'video_id=[A-Za-z0-9_-]*' /tmp/upload.log | head -1 | cut -d= -f2)
           curl -fsSL -m 15 -X POST -H "Authorization: Bearer $CI_TOKEN" -H 'content-type: application/json' \
             -d "{\"seed\":\"$SEED\",\"video\":\"$VID\"}" "$CI_ENDPOINT/done" > /dev/null || true
           python3 scripts/tg_notify.py --kind publish --seed "$SEED" --video "$VID" > /tmp/tg.log 2>&1 && echo "notify: ok" || echo "notify: failed"
-          python3 scripts/post_pin_comment.py --video "$VID" > /tmp/pin.log 2>&1 && echo "comments: ok" || { echo "comments: failed"; tail -c 250 /tmp/pin.log; }
-          python3 scripts/captions_from_props.py --video "$VID" > /tmp/captions.log 2>&1 && echo "captions: ok" || { echo "captions: failed"; tail -c 250 /tmp/captions.log; }
-          python3 scripts/playlists_sync.py --video "$VID" > /tmp/playlist.log 2>&1 && echo "playlist: ok" || { echo "playlist: failed"; tail -c 250 /tmp/playlist.log; }
+          python3 scripts/post_pin_comment.py --video "$VID" > /tmp/pin.log 2>&1 && echo "comments: ok" || { echo "comments: failed"; ship /tmp/pin.log pin; }
+          python3 scripts/captions_from_props.py --video "$VID" > /tmp/captions.log 2>&1 && echo "captions: ok" || { echo "captions: failed"; ship /tmp/captions.log captions; }
+          python3 scripts/playlists_sync.py --video "$VID" > /tmp/playlist.log 2>&1 && echo "playlist: ok" || { echo "playlist: failed"; ship /tmp/playlist.log playlist; }
           echo "publish: ok"
 
       - name: notify
