@@ -135,8 +135,8 @@ jobs:
           RC=$?
           set -e
           case $RC in
-            0) NM=$(python3 -c "import json;print(json.load(open('output/.narr_meta.json')).get('source','?'))" 2>/dev/null || echo '?'); echo "produce: ok (voice=$NM)" ;;
-            2|3|4) echo "produce: skipped ($RC)"; touch /tmp/skip_render ;;
+            0) NM=$(python3 -c "import json;print(json.load(open('output/.narr_meta.json')).get('source','?'))" 2>/dev/null || echo '?'); echo "produce: ok (voice=$NM)"; grep -aE 'ASR|концовк|форма [0-9]|site_ok|TTS ' /tmp/produce.log | tail -20 || true; tail -c 600 /tmp/produce.log || true ;;
+            2|3|4) echo "produce: skipped ($RC)"; touch /tmp/skip_render; tail -c 1200 /tmp/produce.log || true ;;
             *) echo "produce: error ($RC)"; tail -c 1200 /tmp/produce.log; exit 1 ;;
           esac
 
