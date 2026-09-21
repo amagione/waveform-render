@@ -32,10 +32,23 @@ jobs:
           CI_TOKEN: ${{ secrets.CI_TOKEN }}
           SEED: ${{ github.event.inputs.seed }}
         run: |
-          set -e
+          set -euo pipefail
           if [ -z "$SEED" ]; then echo "no seed given - nothing to do"; exit 0; fi
           mkdir -p app
-          curl -fsSL -m 600 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/bundle" | base64 -d | tar xz -C app
+          dl() {
+            local url="$1" out="$2" tries="$3" i
+            for i in $(seq 1 "$tries"); do
+              if curl -fsSL -m 600 --connect-timeout 20 -H "Authorization: Bearer $CI_TOKEN" "$url" -o "$out"; then return 0; fi
+              echo "download failed (try $i/$tries): $url"; rm -f "$out"; sleep $((i*4));
+            done
+            return 1
+          }
+          dl "$CI_ENDPOINT/bundle" /tmp/bundle.b64 5
+          rm -rf /tmp/appx && mkdir -p /tmp/appx
+          base64 -d /tmp/bundle.b64 | tar xz -C /tmp/appx
+          [ -f /tmp/appx/package.json ] || { echo "kit integrity: package.json missing (truncated?)"; exit 1; }
+          rm -f /tmp/bundle.b64
+          rm -rf app && mv /tmp/appx app
           echo "kit: ok ($(du -sh app | cut -f1))"
           echo "runtime: $(nproc) cores, $(free -h | awk '/^Mem/{print $2}') mem"
 
@@ -58,14 +71,22 @@ jobs:
           SEED: ${{ github.event.inputs.seed }}
         run: |
           set -e
-          curl -fsSL -m 30 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/episode/$SEED" -o /tmp/ep.json
+          for i in 1 2 3; do
+            if curl -fsSL -m 30 --connect-timeout 15 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/episode/$SEED" -o /tmp/ep.json; then break; fi
+            echo "episode fetch failed (try $i/3)"; rm -f /tmp/ep.json; sleep $((i*4));
+          done
           python3 -c "import json,sys; j=json.load(open('/tmp/ep.json')); sys.exit(0 if j.get('ok') else 1)"
           mkdir -p output
           python3 -c "import json; json.dump(json.load(open('/tmp/ep.json')).get('brief') or {}, open('output/brief.json','w'), ensure_ascii=False)"
           BP=$(python3 -c "import json; print(((json.load(open('output/brief.json')).get('image') or {}).get('branch_path') or ''))")
           if [ -n "$BP" ]; then
             mkdir -p "episodes-img/$(dirname "$BP")"
-            curl -fsSL -m 90 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/image/$SEED" -o "episodes-img/$BP"
+            ok=""
+            for i in 1 2 3; do
+              if curl -fsSL -m 90 --connect-timeout 15 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/image/$SEED" -o "episodes-img/$BP"; then ok=1; break; fi
+              echo "image fetch failed (try $i/3)"; sleep $((i*4));
+            done
+            [ -n "$ok" ] || { echo "image fetch: giving up"; exit 1; }
             echo "artwork: ok"
           else
             echo "artwork: inline (brief url)"
