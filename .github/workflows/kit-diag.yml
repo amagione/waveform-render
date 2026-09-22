@@ -1,0 +1,56 @@
+name: kit-diag
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: listmodels probe (slots 1-16, statuses only, zero generate calls)
+        env:
+          GEMINI_API_KEY: ${{ secrets.AUTH_TOKEN }}
+          GEMINI_API_KEY_1: ${{ secrets.AUTH_TOKEN_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.AUTH_TOKEN_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.AUTH_TOKEN_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.AUTH_TOKEN_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.AUTH_TOKEN_5 }}
+          GEMINI_API_KEY_6: ${{ secrets.AUTH_TOKEN_6 }}
+          GEMINI_API_KEY_7: ${{ secrets.AUTH_TOKEN_7 }}
+          GEMINI_API_KEY_8: ${{ secrets.AUTH_TOKEN_8 }}
+          GEMINI_API_KEY_9: ${{ secrets.AUTH_TOKEN_9 }}
+          GEMINI_API_KEY_10: ${{ secrets.AUTH_TOKEN_10 }}
+          GEMINI_API_KEY_11: ${{ secrets.AUTH_TOKEN_11 }}
+          GEMINI_API_KEY_12: ${{ secrets.AUTH_TOKEN_12 }}
+          GEMINI_API_KEY_13: ${{ secrets.AUTH_TOKEN_13 }}
+          GEMINI_API_KEY_14: ${{ secrets.AUTH_TOKEN_14 }}
+          GEMINI_API_KEY_15: ${{ secrets.AUTH_TOKEN_15 }}
+          GEMINI_API_KEY_16: ${{ secrets.AUTH_TOKEN_16 }}
+        run: |
+          python3 - <<'PY'
+          import os, urllib.request, urllib.error
+          slots = [(k, v) for k, v in sorted(os.environ.items(), key=lambda x: (len(x[0]), x[0]))
+                   if k.startswith('GEMINI_API_KEY') and v]
+          print(f'slots with keys: {len(slots)}')
+          alive = 0
+          for name, key in slots:
+              req = urllib.request.Request(
+                  'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1',
+                  headers={'x-goog-api-key': key})
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as r:
+                      print(f'{name}: 200 OK (valid, quota left)')
+                      alive += 1
+              except urllib.error.HTTPError as e:
+                  # 429 = ключ ВАЛИДЕН, суточная квота исчерпана; 400/403 = проблема ключа
+                  print(f'{name}: HTTP {e.code}' + (' (valid, per-day exhausted)' if e.code == 429 else ' (PROBLEM)'))
+                  if e.code == 429:
+                      alive += 1
+              except Exception as e:
+                  print(f'{name}: {type(e).__name__}')
+          print(f'VERDICT: {alive}/{len(slots)} valid keys')
+          PY
