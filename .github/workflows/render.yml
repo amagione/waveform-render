@@ -105,6 +105,14 @@ jobs:
           GEMINI_API_KEY_6: ${{ secrets.AUTH_TOKEN_6 }}
           GEMINI_API_KEY_7: ${{ secrets.AUTH_TOKEN_7 }}
           GEMINI_API_KEY_8: ${{ secrets.AUTH_TOKEN_8 }}
+          GEMINI_API_KEY_9: ${ secrets.AUTH_TOKEN_9 }
+          GEMINI_API_KEY_10: ${ secrets.AUTH_TOKEN_10 }
+          GEMINI_API_KEY_11: ${ secrets.AUTH_TOKEN_11 }
+          GEMINI_API_KEY_12: ${ secrets.AUTH_TOKEN_12 }
+          GEMINI_API_KEY_13: ${ secrets.AUTH_TOKEN_13 }
+          GEMINI_API_KEY_14: ${ secrets.AUTH_TOKEN_14 }
+          GEMINI_API_KEY_15: ${ secrets.AUTH_TOKEN_15 }
+          GEMINI_API_KEY_16: ${ secrets.AUTH_TOKEN_16 }
           YOUTUBE_CLIENT_ID: ${{ secrets.PUB_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.PUB_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.PUB_TOKEN }}
@@ -136,6 +144,14 @@ jobs:
           GEMINI_API_KEY_6: ${{ secrets.AUTH_TOKEN_6 }}
           GEMINI_API_KEY_7: ${{ secrets.AUTH_TOKEN_7 }}
           GEMINI_API_KEY_8: ${{ secrets.AUTH_TOKEN_8 }}
+          GEMINI_API_KEY_9: ${ secrets.AUTH_TOKEN_9 }
+          GEMINI_API_KEY_10: ${ secrets.AUTH_TOKEN_10 }
+          GEMINI_API_KEY_11: ${ secrets.AUTH_TOKEN_11 }
+          GEMINI_API_KEY_12: ${ secrets.AUTH_TOKEN_12 }
+          GEMINI_API_KEY_13: ${ secrets.AUTH_TOKEN_13 }
+          GEMINI_API_KEY_14: ${ secrets.AUTH_TOKEN_14 }
+          GEMINI_API_KEY_15: ${ secrets.AUTH_TOKEN_15 }
+          GEMINI_API_KEY_16: ${ secrets.AUTH_TOKEN_16 }
           CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
           CI_TOKEN: ${{ secrets.CI_TOKEN }}
           SEED: ${{ github.event.inputs.seed }}
