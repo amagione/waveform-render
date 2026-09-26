@@ -42,7 +42,7 @@ jobs:
           echo "--- result ---"
           ls -la out/
 
-      - name: Subtitles probe (yt-dlp: автосубтитры YouTube)
+      - name: "Subtitles probe (yt-dlp, автосубтитры YouTube)"
         run: |
           VID="${{ github.event.inputs.vid }}"
           mkdir -p out
