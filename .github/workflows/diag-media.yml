@@ -42,61 +42,16 @@ jobs:
           echo "--- result ---"
           ls -la out/
 
-      - name: Innertube transcript probe (ASR-субтитры YouTube)
+      - name: Subtitles probe (yt-dlp: автосубтитры YouTube)
         run: |
           VID="${{ github.event.inputs.vid }}"
-          python3 - <<'PY'
-          import base64, json, urllib.request
-          VID = "${{ github.event.inputs.vid }}"
-          KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
-          def pb_str(f, s):
-              b = s.encode()
-              return bytes([f * 8 + 2, len(b)]) + b
-          def pb_varint(f, n):
-              return bytes([f * 8 + 0, n])
-          variants = {
-              "A": pb_str(1, VID) + pb_varint(2, 1),
-              "G": pb_str(1, pb_str(1, VID) + pb_str(2, pb_varint(1, 1) + pb_str(2, "ru") + pb_varint(5, 1))) + pb_str(2, pb_varint(1, 1) + pb_varint(2, 1)),
-          }
-          for name, params in variants.items():
-              body = {
-                  "context": {"client": {"clientName": "WEB", "clientVersion": "2.20240701.00.00", "hl": "ru", "gl": "RU"}},
-                  "params": base64.b64encode(params).decode(),
-              }
-              req = urllib.request.Request(
-                  f"https://www.youtube.com/youtubei/v1/get_transcript?key={KEY}",
-                  data=json.dumps(body).encode(),
-                  headers={"Content-Type": "application/json",
-                           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-              try:
-                  with urllib.request.urlopen(req, timeout=25) as r:
-                      d = json.loads(r.read())
-                  segs = []
-                  def walk(o):
-                      if isinstance(o, dict):
-                          if "transcriptSegmentRenderer" in o:
-                              s = o["transcriptSegmentRenderer"]
-                              txt = "".join(x.get("text", "") for x in s.get("snippet", {}).get("runs", []))
-                              segs.append((int(s.get("startMs", "0")) / 1000.0, txt))
-                          for v in o.values():
-                              walk(v)
-                      elif isinstance(o, list):
-                          for v in o:
-                              walk(v)
-                  walk(d)
-                  if segs:
-                      segs.sort()
-                      print(f"[transcript:{name}] {len(segs)} сегментов")
-                      for t, x in segs:
-                          print(f"  {t:6.1f}s {x}")
-                      raise SystemExit(0)
-                  else:
-                      print(f"[transcript:{name}] пусто: {str(d)[:200]}")
-              except SystemExit:
-                  raise
-              except Exception as e:
-                  print(f"[transcript:{name}] ERR {repr(e)[:150]}")
-          PY
+          mkdir -p out
+          set +e
+          yt-dlp --skip-download --write-auto-subs --write-subs \
+            --sub-langs "ru.*,en.*" --sub-format "vtt/srv3/best" \
+            -o "out/$VID.%(ext)s" "https://www.youtube.com/watch?v=$VID" 2>&1 | tail -8
+          echo "--- result ---"
+          ls -la out/
 
       - name: Upload media artifact
         if: always()
