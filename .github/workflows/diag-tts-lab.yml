@@ -1,0 +1,79 @@
+# ============================================================
+# diag-tts-lab.yml — [А268] перенос TTS Site Lab в живой репо.
+# В TechAGIAM/althea-shorts Actions сломаны (все раны падают без
+# логов, Trend magnets падает днями) + workflow был disabled —
+# утренний крон 07:35 физически не мог отработать. Здесь — тот же
+# лаб-скрипт из боевого бандла (CI_ENDPOINT/bundle), те же ключи,
+# артефакт wavs + results.json. Только чтение TTS/ASR, публикаций нет.
+# ============================================================
+name: diag-tts-lab
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diag-tts-lab
+  cancel-in-progress: false
+
+jobs:
+  lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: prepare (bundle from CI)
+        env:
+          CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
+          CI_TOKEN: ${{ secrets.CI_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p app
+          dl() {
+            local url="$1" out="$2" tries="$3" i
+            for i in $(seq 1 "$tries"); do
+              if curl -fsSL -m 600 --connect-timeout 20 -H "Authorization: Bearer $CI_TOKEN" "$url" -o "$out"; then return 0; fi
+              echo "download failed (try $i/$tries): $url"; rm -f "$out"; sleep $((i*4));
+            done
+            return 1
+          }
+          dl "$CI_ENDPOINT/bundle" /tmp/bundle.b64 5
+          rm -rf /tmp/appx && mkdir -p /tmp/appx
+          base64 -d /tmp/bundle.b64 | tar xz -C /tmp/appx
+          [ -f /tmp/appx/scripts/tts_site_lab.py ] || { echo "нет scripts/tts_site_lab.py в бандле"; exit 1; }
+          rm -f /tmp/bundle.b64
+          rm -rf app && mv /tmp/appx app
+          echo "kit: ok ($(du -sh app | cut -f1))"
+          # маркер лаба: в бандле его нет, скрипт без него exit 0
+          mkdir -p app/state && echo "diag-tts-lab manual dispatch [А268]" > app/state/tts_lab_pending.txt
+
+      - name: Install ffmpeg
+        run: |
+          if [ ! -f /usr/bin/ffmpeg ]; then
+            sudo timeout 300 apt-get update -qq -o Acquire::http::Timeout=30 -o Acquire::Retries=2
+            sudo timeout 300 apt-get install -y -qq -o Acquire::http::Timeout=30 -o Acquire::Retries=2 ffmpeg
+          fi
+          ffmpeg -version | head -1
+
+      - name: TTS site lab (variants x voices -> ASR)
+        working-directory: app
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+        run: |
+          set -o pipefail
+          python3 scripts/tts_site_lab.py 2>&1 | tee output/tts_site_lab_log.txt
+
+      - name: Upload samples + results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-tts-lab
+          path: |
+            app/output/tts_site_lab/
+            app/output/tts_site_lab_log.txt
+          if-no-files-found: ignore
