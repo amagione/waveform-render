@@ -59,11 +59,13 @@ jobs:
       - name: TTS site lab (variants x voices -> ASR)
         working-directory: app
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
-          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
-          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
-          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+          GEMINI_API_KEY: ${{ secrets.AUTH_TOKEN }}
+          GEMINI_API_KEY_1: ${{ secrets.AUTH_TOKEN_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.AUTH_TOKEN_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.AUTH_TOKEN_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.AUTH_TOKEN_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.AUTH_TOKEN_5 }}
+          GEMINI_API_KEY_6: ${{ secrets.AUTH_TOKEN_6 }}
         run: |
           set -o pipefail
           python3 scripts/tts_site_lab.py 2>&1 | tee output/tts_site_lab_log.txt
