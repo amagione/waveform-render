@@ -1,0 +1,62 @@
+# ============================================================
+# diag-media.yml — диаг-вердикт: скачать опубликованное видео/аудио
+# и выложить артефактом (для локальной ASR/кадровой верификации).
+# Стиль diag.yml (T-DIAG): только чтение, ничего не публикует.
+# Триггер: ручной, vid обязателен.
+# ============================================================
+name: diag-media
+
+on:
+  workflow_dispatch:
+    inputs:
+      vid:
+        description: 'video id'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install yt-dlp
+        run: |
+          python3 -m pip install -q --disable-pip-version-check yt-dlp
+          yt-dlp --version
+
+      - name: Download media (player clients fallback)
+        run: |
+          VID="${{ github.event.inputs.vid }}"
+          mkdir -p out
+          set +e
+          for C in tv android ios mweb tv_embedded web_embedded web_safari; do
+            echo "=== player_client=$C ==="
+            yt-dlp --extractor-args "youtube:player_client=$C" \
+              -f "b[height<=480]/bv*[height<=480]+ba/b" \
+              --merge-output-format mp4 \
+              -o "out/$VID.mp4" "https://www.youtube.com/watch?v=$VID" 2>&1 | tail -5
+            if [ -s "out/$VID.mp4" ]; then echo "[OK] client=$C"; break; fi
+          done
+          echo "--- result ---"
+          ls -la out/
+
+      - name: "Subtitles probe (yt-dlp, автосубтитры YouTube)"
+        run: |
+          VID="${{ github.event.inputs.vid }}"
+          mkdir -p out
+          set +e
+          yt-dlp --skip-download --write-auto-subs --write-subs \
+            --sub-langs "ru.*,en.*" --sub-format "vtt/srv3/best" \
+            -o "out/$VID.%(ext)s" "https://www.youtube.com/watch?v=$VID" 2>&1 | tail -8
+          echo "--- result ---"
+          ls -la out/
+
+      - name: Upload media artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-media
+          path: out/
+          if-no-files-found: ignore
