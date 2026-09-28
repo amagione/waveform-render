@@ -113,6 +113,7 @@ jobs:
           GEMINI_API_KEY_14: ${{ secrets.AUTH_TOKEN_14 }}
           GEMINI_API_KEY_15: ${{ secrets.AUTH_TOKEN_15 }}
           GEMINI_API_KEY_16: ${{ secrets.AUTH_TOKEN_16 }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           YOUTUBE_CLIENT_ID: ${{ secrets.PUB_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.PUB_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.PUB_TOKEN }}
@@ -152,6 +153,7 @@ jobs:
           GEMINI_API_KEY_14: ${{ secrets.AUTH_TOKEN_14 }}
           GEMINI_API_KEY_15: ${{ secrets.AUTH_TOKEN_15 }}
           GEMINI_API_KEY_16: ${{ secrets.AUTH_TOKEN_16 }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
           CI_TOKEN: ${{ secrets.CI_TOKEN }}
           SEED: ${{ github.event.inputs.seed }}
