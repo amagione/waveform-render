@@ -1,0 +1,83 @@
+name: diag-keys
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'модель для пробы'
+        required: false
+        default: 'gemini-3.8-flash'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: per-key 1-token generate probe (16 slots, quotaId forensics)
+        env:
+          GEMINI_API_KEY: ${{ secrets.AUTH_TOKEN }}
+          GEMINI_API_KEY_1: ${{ secrets.AUTH_TOKEN_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.AUTH_TOKEN_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.AUTH_TOKEN_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.AUTH_TOKEN_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.AUTH_TOKEN_5 }}
+          GEMINI_API_KEY_6: ${{ secrets.AUTH_TOKEN_6 }}
+          GEMINI_API_KEY_7: ${{ secrets.AUTH_TOKEN_7 }}
+          GEMINI_API_KEY_8: ${{ secrets.AUTH_TOKEN_8 }}
+          GEMINI_API_KEY_9: ${{ secrets.AUTH_TOKEN_9 }}
+          GEMINI_API_KEY_10: ${{ secrets.AUTH_TOKEN_10 }}
+          GEMINI_API_KEY_11: ${{ secrets.AUTH_TOKEN_11 }}
+          GEMINI_API_KEY_12: ${{ secrets.AUTH_TOKEN_12 }}
+          GEMINI_API_KEY_13: ${{ secrets.AUTH_TOKEN_13 }}
+          GEMINI_API_KEY_14: ${{ secrets.AUTH_TOKEN_14 }}
+          GEMINI_API_KEY_15: ${{ secrets.AUTH_TOKEN_15 }}
+          GEMINI_API_KEY_16: ${{ secrets.AUTH_TOKEN_16 }}
+          PROBE_MODEL: ${{ github.event.inputs.model }}
+        run: |
+          python3 - <<'PY'
+          import os, json, urllib.request, urllib.error, datetime
+          MODEL = os.environ.get('PROBE_MODEL') or 'gemini-3.8-flash'
+          slots = [(k, v) for k, v in sorted(os.environ.items(),
+                   key=lambda x: (len(x[0]), x[0]))
+                   if k.startswith('GEMINI_API_KEY') and v]
+          now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+          print(f'=== diag-keys {now} model={MODEL} slots={len(slots)} ===')
+          alive = exhausted = broken = 0
+          for name, key in slots:
+              body = json.dumps({
+                  'contents': [{'parts': [{'text': 'OK'}]}],
+                  'generationConfig': {'maxOutputTokens': 1}
+              }).encode()
+              req = urllib.request.Request(
+                  f'https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent',
+                  data=body, method='POST',
+                  headers={'x-goog-api-key': key, 'Content-Type': 'application/json'})
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as r:
+                      print(f'{name}: 200 ALIVE')
+                      alive += 1
+              except urllib.error.HTTPError as e:
+                  raw = e.read().decode('utf-8', 'ignore')
+                  try:
+                      j = json.loads(raw)
+                      err = j.get('error') or {}
+                      qids = []
+                      for d in (err.get('details') or []):
+                          for v in (d.get('violations') or []):
+                              q = v.get('quotaId')
+                              if q: qids.append(q)
+                      msg = (err.get('message') or '')[:120]
+                  except Exception:
+                      qids, msg = [], raw[:120]
+                  tag = 'EXHAUSTED (per-day)' if e.code == 429 else 'PROBLEM'
+                  if e.code == 429: exhausted += 1
+                  else: broken += 1
+                  print(f'{name}: HTTP {e.code} {tag} quotaIds={qids} msg={msg}')
+              except Exception as e:
+                  broken += 1
+                  print(f'{name}: NET-ERROR {str(e)[:100]}')
+          print(f'=== ИТОГ: alive={alive} exhausted={exhausted} broken={broken} из {len(slots)} ===')
+          PY
