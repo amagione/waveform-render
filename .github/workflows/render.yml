@@ -50,6 +50,10 @@ jobs:
           rm -f /tmp/bundle.b64
           rm -rf app && mv /tmp/appx app
           echo "kit: ok ($(du -sh app | cut -f1))"
+          # [А294] cross-run pool memory: восстановить exhausted+ledger пула Gemini
+          mkdir -p app/output
+          rm -f app/output/.gemini_key_pool_state.json
+          if curl -fsSL -m 20 --connect-timeout 10 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/pool-state" -o app/output/.gemini_key_pool_state.json 2>/dev/null; then echo "pool-state: restored ($(wc -c < app/output/.gemini_key_pool_state.json)B)"; else rm -f app/output/.gemini_key_pool_state.json; echo "pool-state: none (fresh)"; fi
           echo "runtime: $(nproc) cores, $(free -h | awk '/^Mem/{print $2}') mem"
 
       - name: install
@@ -163,6 +167,8 @@ jobs:
           RC=$?
           set -e
           ship() { curl -fsSL -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @"$1" "$CI_ENDPOINT/prod-log?seed=$SEED&kind=$2" > /dev/null 2>&1 || true; }
+          # [А294] cross-run pool memory: exhausted+ledger -> kit D1 (следующий ран восстановит)
+          if [ -f output/.gemini_key_pool_state.json ]; then ship output/.gemini_key_pool_state.json pool-state; echo "pool-state: shipped"; fi
           case $RC in
             0) NM=$(python3 -c "import json;print(json.load(open('output/.narr_meta.json')).get('source','?'))" 2>/dev/null || echo '?'); echo "produce: ok (voice=$NM)"; ship /tmp/produce.log produce ;;
             2|3|4) echo "produce: skipped ($RC)"; touch /tmp/skip_render; ship /tmp/produce.log produce ;;
