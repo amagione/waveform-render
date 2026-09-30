@@ -26,6 +26,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # [А296] пин Node 22.23.2: образ 20260927.320 (Node 22.23.3) ронял
+      # npx remotion за 1.4с (unhandled AggregateError при сетевой деградации).
+      - name: node (pinned)
+        if: ${{ github.event.inputs.seed != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+
       - name: prepare
         env:
           CI_ENDPOINT: ${{ secrets.CI_ENDPOINT }}
@@ -191,6 +199,15 @@ jobs:
           set +e
           npx remotion render src/Root.tsx ShortVideo output/video.mp4 --props=$PROPS_FILE --concurrency=$CONC --codec=h264 --crf=26 --preset=ultrafast --image-format=jpeg --gl=swiftshader --log=warn > /tmp/render.log 2>&1
           RC=$?
+          # [А296] транзиент-защита: если рендер умер на сетевом AggregateError
+          # (ETIMEDOUT/ENETUNREACH к CF-хосту) — один ретрай через 30с. Дебаенс:
+          # TTS/пропсы уже на диске, ретрай дешёвый; при успехе RC=0 идёт дальше.
+          if [ $RC -ne 0 ] && grep -qE "AggregateError|ETIMEDOUT|ENETUNREACH|ECONNRESET" /tmp/render.log; then
+            echo "render: transient network failure — retry once in 30s"
+            sleep 30
+            npx remotion render src/Root.tsx ShortVideo output/video.mp4 --props=$PROPS_FILE --concurrency=$CONC --codec=h264 --crf=26 --preset=ultrafast --image-format=jpeg --gl=swiftshader --log=warn > /tmp/render.log 2>&1
+            RC=$?
+          fi
           set -e
           if [ $RC -ne 0 ]; then
             echo "render: error ($RC)"
