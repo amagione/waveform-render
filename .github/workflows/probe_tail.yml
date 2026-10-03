@@ -1,0 +1,23 @@
+name: probe-tail
+"on":
+  workflow_dispatch:
+    inputs:
+      video:
+        description: "video id"
+        required: true
+jobs:
+  tail:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch tail audio
+        run: |
+          python3 -m pip install -U yt-dlp
+          python3 -m yt_dlp -x --audio-format mp3 --audio-quality 96K \
+            --download-sections "*-30" --force-keyframes-at-cuts \
+            -o tail.mp3 "https://www.youtube.com/watch?v=${{ github.event.inputs.video }}"
+          ls -la tail.mp3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tail
+          path: tail.mp3
+          retention-days: 1
