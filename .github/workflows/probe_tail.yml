@@ -12,12 +12,17 @@ jobs:
       - name: fetch tail audio
         run: |
           python3 -m pip install -U yt-dlp
-          python3 -m yt_dlp -x --audio-format mp3 --audio-quality 96K \
-            --download-sections "*-30" --force-keyframes-at-cuts \
-            -o tail.mp3 "https://www.youtube.com/watch?v=${{ github.event.inputs.video }}"
-          ls -la tail.mp3
+          for CL in tv web_safari mweb ios android_vr; do
+            echo "== client $CL"
+            python3 -m yt_dlp --js-runtimes node -x --audio-format mp3 --audio-quality 96K \
+              --download-sections "*-30" --force-keyframes-at-cuts \
+              --extractor-args "youtube:player_client=$CL" \
+              -o "tail_$CL.mp3" "https://www.youtube.com/watch?v=${{ github.event.inputs.video }}" && break
+          done
+          ls -la tail_*.mp3 || true
       - uses: actions/upload-artifact@v4
         with:
           name: tail
-          path: tail.mp3
+          path: tail_*.mp3
+          if-no-files-found: ignore
           retention-days: 1
