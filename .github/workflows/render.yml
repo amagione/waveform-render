@@ -15,8 +15,12 @@ on:
 permissions:
   contents: read
 
+# [А339] per-seed group: разные эпизоды рендерятся параллельно и не отменяют друг
+# друга в очереди (инцидент 05.10: GitHub-outage runner assignment с 19:11 UTC —
+# общий пул «render» ронял pending-раны каждым новым диспатчем, батч 6/6 погиб).
+# Повторный рендер того же эпизода (seed) сериализуется — дублей не будет.
 concurrency:
-  group: render
+  group: render-${{ github.event.inputs.seed || github.run_id }}
   cancel-in-progress: false
 
 jobs:
