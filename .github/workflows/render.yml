@@ -15,10 +15,8 @@ on:
 permissions:
   contents: read
 
-# [А339] per-seed group: разные эпизоды рендерятся параллельно и не отменяют друг
-# друга в очереди (инцидент 05.10: GitHub-outage runner assignment с 19:11 UTC —
-# общий пул «render» ронял pending-раны каждым новым диспатчем, батч 6/6 погиб).
-# Повторный рендер того же эпизода (seed) сериализуется — дублей не будет.
+# per-seed group: different episodes render in parallel and never cancel
+# each other in the queue; re-render of the same seed is serialized.
 concurrency:
   group: render-${{ github.event.inputs.seed || github.run_id }}
   cancel-in-progress: false
@@ -30,8 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # [А296] пин Node 22.23.2: образ 20260927.320 (Node 22.23.3) ронял
-      # npx remotion за 1.4с (unhandled AggregateError при сетевой деградации).
+      # node pinned: newer runner images broke remotion startup (AggregateError).
       - name: node (pinned)
         if: ${{ github.event.inputs.seed != '' }}
         uses: actions/setup-node@v4
@@ -62,7 +59,7 @@ jobs:
           rm -f /tmp/bundle.b64
           rm -rf app && mv /tmp/appx app
           echo "kit: ok ($(du -sh app | cut -f1))"
-          # [А294] cross-run pool memory: восстановить exhausted+ledger пула Gemini
+          # cross-run pool memory: restore pool state from the previous run
           mkdir -p app/output
           rm -f app/output/.gemini_key_pool_state.json
           if curl -fsSL -m 20 --connect-timeout 10 -H "Authorization: Bearer $CI_TOKEN" "$CI_ENDPOINT/pool-state" -o app/output/.gemini_key_pool_state.json 2>/dev/null; then echo "pool-state: restored ($(wc -c < app/output/.gemini_key_pool_state.json)B)"; else rm -f app/output/.gemini_key_pool_state.json; echo "pool-state: none (fresh)"; fi
@@ -179,7 +176,7 @@ jobs:
           RC=$?
           set -e
           ship() { curl -fsSL -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @"$1" "$CI_ENDPOINT/prod-log?seed=$SEED&kind=$2" > /dev/null 2>&1 || true; }
-          # [А294] cross-run pool memory: exhausted+ledger -> kit D1 (следующий ран восстановит)
+          # cross-run pool memory: ship pool state for the next run
           if [ -f output/.gemini_key_pool_state.json ]; then ship output/.gemini_key_pool_state.json pool-state; echo "pool-state: shipped"; fi
           case $RC in
             0) NM=$(python3 -c "import json;print(json.load(open('output/.narr_meta.json')).get('source','?'))" 2>/dev/null || echo '?'); echo "produce: ok (voice=$NM)"; ship /tmp/produce.log produce ;;
@@ -203,9 +200,8 @@ jobs:
           set +e
           npx remotion render src/Root.tsx ShortVideo output/video.mp4 --props=$PROPS_FILE --concurrency=$CONC --codec=h264 --crf=26 --preset=ultrafast --image-format=jpeg --gl=swiftshader --log=warn > /tmp/render.log 2>&1
           RC=$?
-          # [А296] транзиент-защита: если рендер умер на сетевом AggregateError
-          # (ETIMEDOUT/ENETUNREACH к CF-хосту) — один ретрай через 30с. Дебаенс:
-          # TTS/пропсы уже на диске, ретрай дешёвый; при успехе RC=0 идёт дальше.
+          # transient guard: on network errors retry once after 30s
+          # (render state is already on disk, retry is cheap).
           if [ $RC -ne 0 ] && grep -qE "AggregateError|ETIMEDOUT|ENETUNREACH|ECONNRESET" /tmp/render.log; then
             echo "render: transient network failure — retry once in 30s"
             sleep 30

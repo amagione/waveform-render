@@ -11,7 +11,6 @@ Actions -> render -> Run workflow
 
 - `seed` - 32-char hex, drives palette and geometry determinism
 - `profile` - `preview` renders only, `full` renders and publishes the clip
-  to my channel
 
 ## Layout
 
