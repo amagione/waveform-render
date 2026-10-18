@@ -180,7 +180,7 @@ jobs:
           if [ -f output/.gemini_key_pool_state.json ]; then ship output/.gemini_key_pool_state.json pool-state; echo "pool-state: shipped"; fi
           case $RC in
             0) NM=$(python3 -c "import json;print(json.load(open('output/.narr_meta.json')).get('source','?'))" 2>/dev/null || echo '?'); echo "produce: ok (voice=$NM)"; ship /tmp/produce.log produce ;;
-            # [А385] 6 = TOPIC-GATE: штатный скип слота (не сбой) — воркфлоу
+            # [А386] 6 = TOPIC-GATE: штатный скип слота (не сбой) — воркфлоу
             # завершается успешно, failure-алерт не уходит (уведомление шлёт сам гейт)
             2|3|4|6) echo "produce: skipped ($RC)"; touch /tmp/skip_render; ship /tmp/produce.log produce ;;
             *) echo "produce: error ($RC)"; ship /tmp/produce.log produce; exit 1 ;;
