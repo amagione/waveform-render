@@ -140,6 +140,7 @@ jobs:
           set -e
           if [ $RC -ne 0 ]; then
             echo "lint: failed ($RC)"
+            tail -20 /tmp/lint.log
             curl -fsSL -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @/tmp/lint.log "$CI_ENDPOINT/prod-log?seed=$SEED&kind=lint" > /dev/null 2>&1 || true
             exit 1
           fi
@@ -175,15 +176,15 @@ jobs:
           python3 scripts/produce_from_brief.py --brief output/brief.json --image-root episodes-img > /tmp/produce.log 2>&1
           RC=$?
           set -e
-          ship() { curl -fsSL -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @"$1" "$CI_ENDPOINT/prod-log?seed=$SEED&kind=$2" > /dev/null 2>&1 || true; }
+          ship() { local __f="$1" __k="$2" __c=""; for __i in 1 2 3; do __c=$(curl -s -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @"$__f" -o /tmp/.ship_out -w '%{http_code}' "$CI_ENDPOINT/prod-log?seed=$SEED&kind=$__k" 2>/dev/null) || __c="${__c:-curl_err}"; if [ "$__c" = "200" ]; then break; fi; sleep 3; done; echo "ship $__k: http=$__c body=$(head -c 50 /tmp/.ship_out 2>/dev/null | tr -d '\n')"; }
           # cross-run pool memory: ship pool state for the next run
           if [ -f output/.gemini_key_pool_state.json ]; then ship output/.gemini_key_pool_state.json pool-state; echo "pool-state: shipped"; fi
           case $RC in
             0) NM=$(python3 -c "import json;print(json.load(open('output/.narr_meta.json')).get('source','?'))" 2>/dev/null || echo '?'); echo "produce: ok (voice=$NM)"; ship /tmp/produce.log produce ;;
             # [А386] 6 = TOPIC-GATE: штатный скип слота (не сбой) — воркфлоу
             # завершается успешно, failure-алерт не уходит (уведомление шлёт сам гейт)
-            2|3|4|6) echo "produce: skipped ($RC)"; touch /tmp/skip_render; ship /tmp/produce.log produce ;;
-            *) echo "produce: error ($RC)"; ship /tmp/produce.log produce; exit 1 ;;
+            2|3|4|6) echo "produce: skipped ($RC)"; touch /tmp/skip_render; tail -35 /tmp/produce.log; ship /tmp/produce.log produce ;;
+            *) echo "produce: error ($RC)"; tail -35 /tmp/produce.log; ship /tmp/produce.log produce; exit 1 ;;
           esac
 
       - name: render
@@ -213,6 +214,7 @@ jobs:
           set -e
           if [ $RC -ne 0 ]; then
             echo "render: error ($RC)"
+            tail -20 /tmp/render.log
             curl -fsSL -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @/tmp/render.log "$CI_ENDPOINT/prod-log?seed=$SEED&kind=render" > /dev/null 2>&1 || true
             exit 1
           fi
@@ -249,7 +251,7 @@ jobs:
           set -e
           if [ -f /tmp/skip_render ]; then echo "publish: skipped"; exit 0; fi
           export PROPS_FILE=$(ls -t output/props_*.json | head -1)
-          ship() { curl -fsSL -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @"$1" "$CI_ENDPOINT/prod-log?seed=$SEED&kind=$2" > /dev/null 2>&1 || true; }
+          ship() { local __f="$1" __k="$2" __c=""; for __i in 1 2 3; do __c=$(curl -s -m 25 -X POST -H "Authorization: Bearer $CI_TOKEN" --data-binary @"$__f" -o /tmp/.ship_out -w '%{http_code}' "$CI_ENDPOINT/prod-log?seed=$SEED&kind=$__k" 2>/dev/null) || __c="${__c:-curl_err}"; if [ "$__c" = "200" ]; then break; fi; sleep 3; done; echo "ship $__k: http=$__c body=$(head -c 50 /tmp/.ship_out 2>/dev/null | tr -d '\n')"; }
           set +e
           python3 scripts/upload_from_props.py > /tmp/upload.log 2>&1
           RC=$?
