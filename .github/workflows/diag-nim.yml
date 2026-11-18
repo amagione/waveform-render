@@ -1,4 +1,4 @@
-name: "Diag: NIM models probe [A397-16]"
+name: "Diag: NIM models probe [A397-16] r2"
 on:
   workflow_dispatch: {}
 
@@ -10,59 +10,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: NIM list + live test (no key output)
+      - name: NIM live test round 2 (no key output)
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           python3 - <<'PY'
-          import json, os, time, urllib.request, urllib.error
+          import json, os, time, urllib.request
           key = (os.environ.get('NVIDIA_API_KEY') or '').strip()
           if not key:
-              print('NO_KEY: NVIDIA_API_KEY пуст в секретах рана'); raise SystemExit(0)
+              print('NO_KEY'); raise SystemExit(0)
           base = 'https://integrate.api.nvidia.com/v1'
-          def req(method, path, body=None, tmo=80):
-              r = urllib.request.Request(base + path, method=method,
-                  data=json.dumps(body).encode() if body else None,
-                  headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
-              with urllib.request.urlopen(r, timeout=tmo) as resp:
-                  return json.loads(resp.read())
-          try:
-              models = req('GET', '/models')
-              ids = sorted(m.get('id','') for m in models.get('data', []))
-              print(f'LIST_OK: {len(ids)} models')
-              for i in ids: print('MODEL:', i)
-          except Exception as e:
-              print('LIST_FAIL:', str(e)[:200]); raise SystemExit(0)
-          # кандидаты: только РЕАЛЬНО присутствующие в листинге (ничего не выдумываем)
-          import re
-          pref = ('deepseek-ai/', 'moonshotai/', 'z-ai/', 'qwen/', 'meta/llama-3.3-70b-instruct')
-          cands = [i for i in ids if i.startswith(pref) and 'embed' not in i and 'rerank' not in i]
-          cands = cands[:8]
-          print(f'CANDIDATES({len(cands)}):')
-          for m in cands: print('  try:', m)
-          # доказательство смерти старой
-          try:
-              req('POST', '/chat/completions',
-                  {'model': 'deepseek-ai/deepseek-v4.1-flash',
-                   'messages': [{'role':'user','content':'ping'}], 'max_tokens': 5}, tmo=30)
-              print('OLD: deepseek-v4.1-flash жив?!')
-          except Exception as e:
-              print('OLD dead:', str(e)[:160])
+          cands = ["nvidia/nemotron-3.5-lightning-30b-a3b", "minimaxai/minimax-m3.1-flash", "stepfun-ai/step-5-preview", "google/gemma-4-31b-it", "google/gemma-3-12b-it", "nvidia/nemotron-3.5-bolt-e4b"]
           for m in cands:
-              t0 = time.time()
-              try:
-                  out = req('POST', '/chat/completions', {
-                      'model': m,
-                      'messages': [{'role':'user','content':
-                        'Ответь одним коротким предложением: что такое Docker?'}],
-                      'chat_template_kwargs': {'enable_thinking': False},
-                      'max_tokens': 200, 'temperature': 0.2}, tmo=80)
-                  dt = time.time() - t0
-                  msg = (out.get('choices') or [{}])[0].get('message', {})
-                  content = (msg.get('content') or '').strip()
-                  rc = (msg.get('reasoning_content') or '').strip()
-                  print(f'OK {m}: {dt:.1f}s content={len(content)} reasoning={len(rc)}')
-                  if content: print('   RU:', content[:120].replace(chr(10),' '))
-              except Exception as e:
-                  print(f'FAIL {m}: {time.time()-t0:.1f}s {str(e)[:160]}')
+              for rnd in (1, 2):
+                  t0 = time.time()
+                  try:
+                      r = urllib.request.Request(base + '/chat/completions', method='POST',
+                          data=json.dumps({
+                              'model': m,
+                              'messages': [{'role': 'user', 'content':
+                                  'Ответь одним коротким предложением: что такое Docker?'}],
+                              'chat_template_kwargs': {'enable_thinking': False},
+                              'max_tokens': 200, 'temperature': 0.2}).encode(),
+                          headers={'Authorization': 'Bearer ' + key,
+                                   'Content-Type': 'application/json'})
+                      with urllib.request.urlopen(r, timeout=70) as resp:
+                          out = json.loads(resp.read())
+                      dt = time.time() - t0
+                      msg = (out.get('choices') or [{}])[0].get('message', {})
+                      content = (msg.get('content') or '').strip()
+                      rc = (msg.get('reasoning_content') or '').strip()
+                      print(f'OK r{rnd} {m}: {dt:.1f}s content={len(content)} reasoning={len(rc)}')
+                      if content: print('   RU:', content[:120].replace(chr(10), ' '))
+                      elif rc: print('   only-reasoning, content пуст')
+                  except Exception as e:
+                      print(f'FAIL r{rnd} {m}: {time.time()-t0:.1f}s {str(e)[:140]}')
           PY
