@@ -1,0 +1,101 @@
+name: "Diag: YT analytics for removed videos [A398]"
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  analytics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: analytics + uploads playlist + recent statuses (no token output)
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.PUB_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.PUB_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.PUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.parse
+          cid = os.environ['YOUTUBE_CLIENT_ID'].strip()
+          cs = os.environ['YOUTUBE_CLIENT_SECRET'].strip()
+          rt = os.environ['YOUTUBE_REFRESH_TOKEN'].strip()
+          body = urllib.parse.urlencode({'client_id': cid, 'client_secret': cs,
+              'refresh_token': rt, 'grant_type': 'refresh_token'}).encode()
+          with urllib.request.urlopen(urllib.request.Request(
+                  'https://oauth2.googleapis.com/token', data=body, method='POST'), timeout=30) as resp:
+              tok = json.loads(resp.read())
+          at = tok.get('access_token')
+          if not at:
+              print('NO_ACCESS_TOKEN', tok.get('error')); raise SystemExit(0)
+          HDR = {'Authorization': 'Bearer ' + at}
+
+          def api(path, params):
+              q = urllib.parse.urlencode(params)
+              req = urllib.request.Request('https://www.googleapis.com/youtube/v3/' + path + '?' + q, headers=HDR)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  return {'_err': str(e)[:180]}
+
+          def an(path, params):
+              q = urllib.parse.urlencode(params)
+              req = urllib.request.Request('https://youtubeanalytics.googleapis.com/v2/' + path + '?' + q, headers=HDR)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  return {'_err': str(e)[:180]}
+
+          # 1. канал
+          ch = api('channels', {'part': 'snippet,statistics', 'mine': 'true'})
+          for c in ch.get('items', []):
+              print('CHANNEL', c['id'], c['snippet']['title'], 'videos=', c['statistics'].get('videoCount'))
+          upl = ''
+          for c in ch.get('items', []):
+              upl = c['id'].replace('UC', 'UU', 1)
+          vids = ['23lpNDezdRQ', '61hULgdai7k', 'lFfSlrVpDO8', '1bV4XLWix9Q', 'RYK4TzHECQA', 'blMwcmWkZwQ', '6KMzlJJe8y0']
+
+          # 2. аналитика по каждому: views/impressions за 1.09-22.11
+          for v in vids:
+              r = an('reports', {'ids': 'channel==MINE', 'startDate': '2026-09-01',
+                       'endDate': '2026-11-22', 'metrics': 'views,estimatedMinutesWatched,averageViewDuration',
+                       'dimensions': 'video', 'filters': 'video==' + v})
+              rows = (r.get('reports') or [{}])[0].get('rows', []) if 'reports' in r else []
+              if r.get('_err'):
+                  print('AN', v, 'ERR', r['_err'])
+              elif rows:
+                  print('AN', v, 'HAD VIEWS:', json.dumps(rows))
+              else:
+                  print('AN', v, 'NO DATA')
+
+          # 3. плейлист загрузок: есть ли 6 синдромных сейчас (включая приватные)
+          found = {}
+          token = ''
+          for page in range(6):
+              p = api('playlistItems', {'part': 'contentDetails', 'playlistId': upl,
+                        'maxResults': 50, 'pageToken': token})
+              for it in p.get('items', []):
+                  vid = (it.get('contentDetails') or {}).get('videoId')
+                  found[vid] = True
+              token = p.get('nextPageToken') or ''
+              if not token or p.get('_err'):
+                  break
+          print('UPLOADS_PLAYLIST size_seen=', len(found))
+          for v in vids:
+              print('PL', v, 'IN' if found.get(v) else 'OUT')
+
+          # 4. последние 50 видео канала: статусы
+          r = api('search', {'part': 'snippet', 'forMine': 'true', 'type': 'video',
+                  'order': 'date', 'maxResults': 25})
+          ids_recent = [it['id'].get('videoId') for it in r.get('items', []) if it.get('id')]
+          if ids_recent:
+              st = api('videos', {'part': 'status,snippet', 'id': ','.join(ids_recent)})
+              for v in st.get('items', []):
+                  print('RECENT', v['id'], v['status'].get('uploadStatus'), v['status'].get('privacyStatus'),
+                        (v['snippet'].get('publishedAt') or '')[:16], (v['snippet'].get('title') or '')[:40])
+          else:
+              print('RECENT: search пуст', r.get('_err'))
+          PY
