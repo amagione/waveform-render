@@ -1,0 +1,54 @@
+name: "Diag: YT uploads playlist dump [A398]"
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: full uploads playlist dates (no token output)
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.PUB_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.PUB_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.PUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.parse
+          cid = os.environ['YOUTUBE_CLIENT_ID'].strip()
+          cs = os.environ['YOUTUBE_CLIENT_SECRET'].strip()
+          rt = os.environ['YOUTUBE_REFRESH_TOKEN'].strip()
+          body = urllib.parse.urlencode({'client_id': cid, 'client_secret': cs,
+              'refresh_token': rt, 'grant_type': 'refresh_token'}).encode()
+          with urllib.request.urlopen(urllib.request.Request(
+                  'https://oauth2.googleapis.com/token', data=body, method='POST'), timeout=30) as resp:
+              tok = json.loads(resp.read())
+          at = tok['access_token']
+          HDR = {'Authorization': 'Bearer ' + at}
+          def api(path, params):
+              q = urllib.parse.urlencode(params)
+              req = urllib.request.Request('https://www.googleapis.com/youtube/v3/' + path + '?' + q, headers=HDR)
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read())
+          ch = api('channels', {'part': 'contentDetails', 'mine': 'true'})
+          upl = ch['items'][0]['contentDetails']['relatedPlaylists']['uploads']
+          token = ''
+          total = 0
+          while True:
+              p = api('playlistItems', {'part': 'contentDetails,snippet', 'playlistId': upl,
+                        'maxResults': 50, 'pageToken': token})
+              for it in p.get('items', []):
+                  cd = it.get('contentDetails') or {}
+                  sn = it.get('snippet') or {}
+                  vid = cd.get('videoId')
+                  dt = (sn.get('publishedAt') or '')[:19]
+                  print(f'PLITEM {dt} {vid} {(sn.get("title") or "")[:50]}')
+                  total += 1
+              token = p.get('nextPageToken') or ''
+              if not token:
+                  break
+          print('PLTOTAL', total)
+          PY
