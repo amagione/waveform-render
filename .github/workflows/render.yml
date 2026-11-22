@@ -256,6 +256,7 @@ jobs:
           python3 scripts/upload_from_props.py > /tmp/upload.log 2>&1
           RC=$?
           set -e
+          if [ $RC -eq 42 ]; then ship /tmp/upload.log deferred; python3 scripts/tg_notify.py --kind deferred --seed "$SEED" > /tmp/tg.log 2>&1 || true; echo "publish: deferred (yt-cap А398)"; exit 0; fi
           if [ $RC -ne 0 ]; then python3 scripts/tg_notify.py --kind fail --seed "$SEED" --stage publish > /tmp/tg.log 2>&1 || true; echo "publish: error ($RC)"; ship /tmp/upload.log upload; exit 1; fi
           VID=$(grep -o 'video_id=[A-Za-z0-9_-]*' /tmp/upload.log | head -1 | cut -d= -f2)
           curl -fsSL -m 15 -X POST -H "Authorization: Bearer $CI_TOKEN" -H 'content-type: application/json' \
@@ -264,6 +265,13 @@ jobs:
           python3 scripts/post_pin_comment.py --video="$VID" > /tmp/pin.log 2>&1 && echo "comments: ok" || { echo "comments: failed"; ship /tmp/pin.log pin; }
           python3 scripts/captions_from_props.py --video="$VID" > /tmp/captions.log 2>&1 && echo "captions: ok" || { echo "captions: failed"; ship /tmp/captions.log captions; }
           python3 scripts/playlists_sync.py --video="$VID" > /tmp/playlist.log 2>&1 && echo "playlist: ok" || { echo "playlist: failed"; ship /tmp/playlist.log playlist; }
+          # [А398] верификация публикации: YouTube молча удаляет часть загрузок
+          VRC=0
+          if [ -n "$VID" ]; then
+            python3 scripts/verify_yt_live.py --video="$VID" --seed "$SEED" > /tmp/verify.log 2>&1 || VRC=$?
+            ship /tmp/verify.log verify
+            if [ $VRC -ne 0 ]; then ship /tmp/verify.log yt_removed; python3 scripts/tg_notify.py --kind removed --seed "$SEED" --video="$VID" > /tmp/tg.log 2>&1 || true; echo "verify: YT REMOVED ($VID)"; fi
+          fi
           echo "publish: ok"
 
       - name: notify
