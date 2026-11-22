@@ -1,0 +1,76 @@
+name: "Diag: YT video status [A398]"
+on:
+  workflow_dispatch:
+    inputs:
+      vids:
+        description: "comma-separated video ids"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: videos.list status+processingDetails (no token output)
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.PUB_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.PUB_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.PUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.parse
+          cid = os.environ['YOUTUBE_CLIENT_ID'].strip()
+          cs = os.environ['YOUTUBE_CLIENT_SECRET'].strip()
+          rt = os.environ['YOUTUBE_REFRESH_TOKEN'].strip()
+          vids = [v.strip() for v in os.environ.get('INPUT_VIDS','').split(',') if v.strip()]
+          print('asked:', ','.join(vids))
+          body = urllib.parse.urlencode({'client_id': cid, 'client_secret': cs,
+              'refresh_token': rt, 'grant_type': 'refresh_token'}).encode()
+          try:
+              with urllib.request.urlopen(urllib.request.Request(
+                      'https://oauth2.googleapis.com/token', data=body, method='POST'),
+                      timeout=30) as resp:
+                  tok = json.loads(resp.read())
+          except Exception as e:
+              print('TOKEN_EXCHANGE_FAIL:', str(e)[:160]); raise SystemExit(0)
+          at = tok.get('access_token')
+          if not at:
+              print('NO_ACCESS_TOKEN err=', tok.get('error'), tok.get('error_description','')[:120])
+              raise SystemExit(0)
+          print('token: OK, scope=', tok.get('scope','')[:200])
+          q = urllib.parse.urlencode({'part': 'status,processingDetails,snippet', 'id': ','.join(vids)})
+          req = urllib.request.Request('https://www.googleapis.com/youtube/v3/videos?' + q,
+              headers={'Authorization': 'Bearer ' + at})
+          try:
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  out = json.loads(resp.read())
+          except Exception as e:
+              print('VIDEOS_LIST_FAIL:', str(e)[:200]); raise SystemExit(0)
+          items = out.get('items', [])
+          found = {v['id'] for v in items}
+          print('items:', len(items), '/ asked', len(vids))
+          for v in items:
+              st = v.get('status', {}); pd = v.get('processingDetails', {}); sn = v.get('snippet', {})
+              print('VID ' + json.dumps({
+                  'id': v['id'],
+                  'uploadStatus': st.get('uploadStatus'),
+                  'privacyStatus': st.get('privacyStatus'),
+                  'publishAt': st.get('publishAt'),
+                  'failureReason': st.get('failureReason'),
+                  'rejectionReason': st.get('rejectionReason'),
+                  'madeForKids': st.get('madeForKids'),
+                  'selfDeclared': st.get('selfDeclaredMadeForKids'),
+                  'embeddable': st.get('embeddable'),
+                  'license': st.get('license'),
+                  'processingStatus': pd.get('processingStatus'),
+                  'procProgress': (pd.get('processingProgress') or {}).get('processedPercentage'),
+                  'title': (sn.get('title') or '')[:50],
+                  'publishedAt': sn.get('publishedAt'),
+              }, ensure_ascii=False))
+          missing = [x for x in vids if x not in found]
+          if missing:
+              print('NOT_IN_LIST (API канала не видит эти id):', ','.join(missing))
+          PY
